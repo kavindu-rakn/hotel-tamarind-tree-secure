@@ -21,6 +21,10 @@ const MAX_FAILS_PER_ACCOUNT = 10
 const MAX_FAILS_PER_IP_AND_ACCOUNT = 5
 const MAX_FAILS_PER_IP = 30
 
+// ─── Session lifetime (V10) ──────────────────────────────────────────────────
+const SESSION_IDLE_MAX_SEC     = 8 * 60 * 60
+const SESSION_ABSOLUTE_MAX_MS  = 12 * 60 * 60 * 1000
+
 // A throw-away bcrypt hash (cost 12, same as real accounts) of a random string nobody knows, made once per
 // server instance. Compared against when the email does not exist, so unknown and known emails take the
 // same time (V08). It is created at run time on purpose: a hash written into the source code looks like a
@@ -109,10 +113,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
 
   callbacks: {
-    jwt({ token, user }) {
+    async jwt({ token, user }) {
+      // Sign-in moment: remember who they are and when they signed in
       if (user) {
-        token.id   = user.id
-        token.role = (user as { role?: string }).role
+        token.id         = user.id
+        token.role       = (user as { role?: string }).role
+        token.signedInAt = Date.now()
+        return token
+      }
+
+      // Every later request (V10): a staff session is only as good as the staff ACCOUNT behind it.
+      // The original trusted the cookie for 30 days even after the account was deleted or demoted.
+      if (token.role === 'ADMIN' || token.role === 'STAFF') {
+        // hard ceiling: nobody stays signed in more than 12 hours, however active they are
+        // (tokens without signedInAt, e.g. issued before this fix, are treated as expired)
+        if (Date.now() - (token.signedInAt ?? 0) > SESSION_ABSOLUTE_MAX_MS) return null
+
+        // the account must still exist, and the role is re-read so a demotion applies immediately
+        const current = await prisma.adminUser.findUnique({
+          where:  { id: token.id as string },
+          select: { role: true },
+        })
+        if (!current) return null // returning null makes Auth.js end the session and clear the cookie
+        token.role = current.role
       }
       return token
     },
@@ -130,7 +153,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error:  '/admin/login',
   },
 
-  session: { strategy: 'jwt' },
+  // Idle timeout 8 hours (cookie is refreshed while the person keeps working), absolute limit 12 hours
+  // (enforced in the jwt callback). The original allowed 30 days.
+  session: { strategy: 'jwt', maxAge: SESSION_IDLE_MAX_SEC, updateAge: 15 * 60 },
 
   trustHost: true,
 })
