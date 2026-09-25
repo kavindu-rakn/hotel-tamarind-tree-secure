@@ -271,3 +271,43 @@ model Inquiry {
   @@index([createdAt])
   @@map("inquiries")
 }
+
+// ─────────────────────────────────────────────────────
+// Rate limiting counters (security fix V05/V06/V07)
+// One row per limiter key, e.g. "login:ip:1.2.3.4". Fixed window: the counter
+// restarts when resetAt has passed. Stored in Postgres (not in server memory)
+// so the limit holds across all serverless instances on Vercel.
+// ─────────────────────────────────────────────────────
+
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+  @@map("rate_limits")
+}
+
+// ─────────────────────────────────────────────────────
+// Audit log (security fix V12): who did what, when, from where
+// Never store passwords, tokens or session cookies here.
+// ─────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  action     String   // e.g. auth.login.failed, admin.rate_plan.update, authz.denied
+  outcome    String   // success | failure | denied
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+  target     String?  // what was touched, e.g. "ratePlan:cl123"
+  ip         String?
+  userAgent  String?
+  metadata   Json?
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([actorEmail])
+  @@map("audit_logs")
+}

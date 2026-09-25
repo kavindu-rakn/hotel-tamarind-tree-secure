@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { PENDING_REQUEST_EXPIRY_HOURS } from '@/lib/constants'
 import { safeEqual } from '@/lib/security/safe-compare'
+import { purgeExpiredRateLimits } from '@/lib/security/rate-limit'
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -37,5 +38,8 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({ expired: count })
+  // housekeeping: drop rate-limit counters whose window ended long ago
+  const purged = await purgeExpiredRateLimits()
+
+  return NextResponse.json({ expired: count, rateLimitRowsPurged: purged })
 }
