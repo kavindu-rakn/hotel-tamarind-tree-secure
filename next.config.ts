@@ -24,7 +24,9 @@ const csp = [
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // accounts.google.com: the "Continue with Google" form is answered with a redirect to Google. Browsers
+  // apply form-action to that redirect too, so Google has to be listed or the sign-in would be blocked.
+  "form-action 'self' https://accounts.google.com",
   ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 

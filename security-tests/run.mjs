@@ -65,7 +65,7 @@ async function login(email, password, ip = fakeIp()) {
 async function guestCookie(email = 'guest.test@example.com') {
   const salt = 'authjs.session-token'
   const token = await encode({
-    token: { name: 'Test Guest', email, sub: `test-${email}`, id: `test-${email}`, role: 'GUEST', emailVerified: true },
+    token: { name: 'Test Guest', email, sub: `test-${email}`, id: `test-${email}`, role: 'GUEST', emailVerified: true, signedInAt: Date.now() },
     secret: process.env.AUTH_SECRET, salt, maxAge: 3600,
   })
   return `${salt}=${token}`

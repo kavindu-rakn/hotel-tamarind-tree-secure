@@ -13,6 +13,7 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "test:security": "node security-tests/run.mjs",
+    "test:oauth": "node security-tests/oauth-e2e.mjs",
     "test:mail": "node security-tests/mock-resend.mjs"
   },
   "dependencies": {

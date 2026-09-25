@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_LINKS } from '@/lib/constants'
+import AccountMenu from './AccountMenu'
 
 export default function Header() {
   const [isScrolled,     setIsScrolled]     = useState(false)
@@ -95,7 +96,8 @@ export default function Header() {
           </nav>
 
           {/* CTA + Mobile toggle */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <AccountMenu solid={isScrolled || isMobileOpen} className="hidden sm:inline-flex" />
             <Link
               href="/book"
               id="header-book-now-btn"
@@ -154,6 +156,7 @@ export default function Header() {
               {link.label}
             </Link>
           ))}
+          <AccountMenu solid className="py-3 px-2" />
           <Link
             href="/book"
             className="mt-3 inline-flex justify-center items-center px-5 py-3 rounded bg-[#5e1e12] text-white font-sans font-semibold text-sm hover:bg-[#7a2a1c] transition-colors duration-200"

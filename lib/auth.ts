@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
+import Google from 'next-auth/providers/google'
 import { prisma } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
@@ -25,6 +26,27 @@ const MAX_FAILS_PER_IP = 30
 const SESSION_IDLE_MAX_SEC     = 8 * 60 * 60
 const SESSION_ABSOLUTE_MAX_MS  = 12 * 60 * 60 * 1000
 
+// Guests (Google sign-in) have no account row in our database, so the only limit we can apply is time.
+const GUEST_ABSOLUTE_MAX_MS    = 24 * 60 * 60 * 1000
+
+// ─── Google sign-in for guests (OAuth 2.0 / OpenID Connect, Authorization Code flow) ─────────────
+// Protections switched on for this flow:
+//   PKCE (S256)  -> a stolen authorization code is useless without our one-time code_verifier
+//   state        -> ties the callback to the browser that started the flow (login CSRF)
+//   nonce        -> ties the ID token to this login attempt (replay of an old token)
+//   The ID token's issuer, audience (our client id), expiry and nonce are checked by Auth.js.
+//   Its signature is NOT checked: the token is fetched by our server straight from Google's token
+//   endpoint over HTTPS, and OpenID Connect Core 3.1.3.7 allows TLS to stand in for the signature there.
+//   That makes HTTPS to Google the thing we depend on, so the test-only issuer override below is
+//   restricted to a local address and can never point at another server.
+const googleIssuerOverride = process.env.AUTH_GOOGLE_ISSUER
+if (googleIssuerOverride) {
+  const loopbackOnly = /^http:\/\/(127\.0\.0\.1|localhost)(:\d{2,5})?$/.test(googleIssuerOverride)
+  if (!loopbackOnly || process.env.VERCEL_ENV === 'production') {
+    throw new Error('AUTH_GOOGLE_ISSUER is for local automated tests only (http://127.0.0.1:PORT) and must never be set in production')
+  }
+}
+
 // A throw-away bcrypt hash (cost 12, same as real accounts) of a random string nobody knows, made once per
 // server instance. Compared against when the email does not exist, so unknown and known emails take the
 // same time (V08). It is created at run time on purpose: a hash written into the source code looks like a
@@ -39,6 +61,13 @@ const credentialsSchema = z.object({
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
+    Google({
+      clientId:     process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      checks: ['pkce', 'state', 'nonce'],
+      authorization: { params: { scope: 'openid email profile', prompt: 'select_account' } },
+      ...(googleIssuerOverride ? { issuer: googleIssuerOverride } : {}),
+    }),
     Credentials({
       name: 'Staff Login',
       credentials: {
@@ -113,8 +142,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
 
   callbacks: {
-    async jwt({ token, user }) {
-      // Sign-in moment: remember who they are and when they signed in
+    // Runs when someone finishes a sign-in. For Google we only accept an email address that Google
+    // itself says is verified: otherwise a person could register a Google account with somebody
+    // else's address and receive that person's booking emails.
+    async signIn({ account, profile }) {
+      if (account?.provider === 'google') {
+        return profile?.email_verified === true && typeof profile.email === 'string'
+      }
+      return true
+    },
+
+    async jwt({ token, user, account, profile }) {
+      // Sign-in with Google: this person is ALWAYS a guest, whatever their email address is.
+      // (Staff roles come only from our own admin_users table through the Credentials provider below.)
+      if (account?.provider === 'google' && profile) {
+        return {
+          sub:        `google:${profile.sub}`,
+          id:         `google:${profile.sub}`,
+          name:       profile.name ?? null,
+          email:      (profile.email as string).toLowerCase(),
+          picture:    profile.picture ?? null,
+          role:       'GUEST',
+          signedInAt: Date.now(),
+        }
+      }
+
+      // Sign-in moment for staff: remember who they are and when they signed in
       if (user) {
         token.id         = user.id
         token.role       = (user as { role?: string }).role
@@ -122,7 +175,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return token
       }
 
-      // Every later request (V10): a staff session is only as good as the staff ACCOUNT behind it.
+      // Every later request, guests: hard time limit only (there is no account row to re-check)
+      if (token.role === 'GUEST') {
+        if (Date.now() - (token.signedInAt ?? 0) > GUEST_ABSOLUTE_MAX_MS) return null
+        return token
+      }
+
+      // Every later request, staff (V10): a staff session is only as good as the staff ACCOUNT behind it.
       // The original trusted the cookie for 30 days even after the account was deleted or demoted.
       if (token.role === 'ADMIN' || token.role === 'STAFF') {
         // hard ceiling: nobody stays signed in more than 12 hours, however active they are
@@ -136,8 +195,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         })
         if (!current) return null // returning null makes Auth.js end the session and clear the cookie
         token.role = current.role
+        return token
       }
-      return token
+
+      // Any other role value is not something we ever issue: end the session.
+      return null
     },
     session({ session, token }) {
       if (token && session.user) {
@@ -149,15 +211,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   pages: {
-    signIn: '/admin/login',
-    error:  '/admin/login',
+    signIn: '/admin/login', // staff password login (also where wrong-password errors land)
+    error:  '/sign-in',     // guest / Google sign-in errors
   },
 
   // Idle timeout 8 hours (cookie is refreshed while the person keeps working), absolute limit 12 hours
   // (enforced in the jwt callback). The original allowed 30 days.
   session: { strategy: 'jwt', maxAge: SESSION_IDLE_MAX_SEC, updateAge: 15 * 60 },
 
-  trustHost: true,
+  // No `trustHost: true` any more: it told Auth.js to believe whatever Host header a request carried.
+  // The site address now comes from AUTH_URL (or from Vercel itself when deployed there).
 })
 
 // Augment next-auth types
