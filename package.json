@@ -11,7 +11,9 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:security": "node security-tests/run.mjs",
+    "test:mail": "node security-tests/mock-resend.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

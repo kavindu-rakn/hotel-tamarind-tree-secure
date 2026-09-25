@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local security test output
+security-tests/mail.log.jsonl
+security-tests/results-*.json
