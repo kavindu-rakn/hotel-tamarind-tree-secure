@@ -2,6 +2,7 @@ import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/db'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { rateLimit, isRateLimited, clearRateLimit } from '@/lib/security/rate-limit'
 import { getClientIp } from '@/lib/security/client-ip'
@@ -20,9 +21,12 @@ const MAX_FAILS_PER_ACCOUNT = 10
 const MAX_FAILS_PER_IP_AND_ACCOUNT = 5
 const MAX_FAILS_PER_IP = 30
 
-// bcrypt hash (cost 12, same as real accounts) of a random string nobody knows.
-// Compared against when the email does not exist, so unknown and known emails take the same time.
-const DUMMY_PASSWORD_HASH = '$2b$12$HIY4JXk.8qmJ5vMjhoVbtOJeCLicWFVQxMF7BHPoW8I1HlwfBwQZ.'
+// A throw-away bcrypt hash (cost 12, same as real accounts) of a random string nobody knows, made once per
+// server instance. Compared against when the email does not exist, so unknown and known emails take the
+// same time (V08). It is created at run time on purpose: a hash written into the source code looks like a
+// leaked credential to secret scanners (Semgrep flagged the earlier version) and has to be explained every time.
+let dummyHashPromise: Promise<string> | undefined
+const dummyPasswordHash = () => (dummyHashPromise ??= bcrypt.hash(randomBytes(32).toString('hex'), 12))
 
 const credentialsSchema = z.object({
   email:    z.string().email(),
@@ -46,6 +50,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const ip = getClientIp(request.headers)
         const userAgent = request.headers.get('user-agent')
 
+        const dummyHash = await dummyPasswordHash() // (first call per instance builds it; later calls are instant)
+
         const kAccount = `login:acct:${email}`
         const kPair    = `login:pair:${ip}:${email}`
         const kIp      = `login:ip:${ip}`
@@ -56,7 +62,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           (await isRateLimited(kPair, MAX_FAILS_PER_IP_AND_ACCOUNT)) ||
           (await isRateLimited(kIp, MAX_FAILS_PER_IP))
         if (locked) {
-          await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
+          await bcrypt.compare(password, dummyHash)
           await audit({ action: 'auth.login.locked', outcome: 'denied', actorEmail: email, ip, userAgent })
           return null
         }
@@ -66,7 +72,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const user = await prisma.adminUser.findFirst({
           where: { email: { equals: email, mode: 'insensitive' } },
         })
-        const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
+        const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? dummyHash)
 
         if (!user || !passwordMatch) {
           await Promise.all([
