@@ -258,6 +258,9 @@ test('V13', 'Dependencies have no known high/critical advisories', async () => {
 })
 
 // ── Runner ──────────────────────────────────────────────────────────────────
+// start every run from a clean slate: earlier runs may have left lockouts / rate-limit counters
+try { await prisma.$executeRawUnsafe('DELETE FROM rate_limits') } catch { /* original app has no such table */ }
+
 const only = process.argv.slice(2)
 const results = []
 console.log(`\nSecurity tests against ${BASE}  (legacy API: ${LEGACY})\n`)

@@ -3,6 +3,26 @@ import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { rateLimit, isRateLimited, clearRateLimit } from '@/lib/security/rate-limit'
+import { getClientIp } from '@/lib/security/client-ip'
+import { audit } from '@/lib/security/audit'
+
+// ─── Login protection (V07 brute force, V08 account guessing) ────────────────
+// Failed attempts are counted three ways, each for LOGIN_WINDOW_SEC seconds:
+//   per account            -> stops password guessing from many different IPs (distributed attack)
+//   per IP + account       -> stops one machine hammering one account
+//   per IP (any account)   -> stops one machine trying many accounts ("password spraying")
+// Trade-off: an attacker can lock a real account for up to 15 minutes by failing on purpose. That is
+// accepted: it is short, every lock is written to the audit log, and it is far better than letting
+// them guess passwords for free.
+const LOGIN_WINDOW_SEC = 15 * 60
+const MAX_FAILS_PER_ACCOUNT = 10
+const MAX_FAILS_PER_IP_AND_ACCOUNT = 5
+const MAX_FAILS_PER_IP = 30
+
+// bcrypt hash (cost 12, same as real accounts) of a random string nobody knows.
+// Compared against when the email does not exist, so unknown and known emails take the same time.
+const DUMMY_PASSWORD_HASH = '$2b$12$HIY4JXk.8qmJ5vMjhoVbtOJeCLicWFVQxMF7BHPoW8I1HlwfBwQZ.'
 
 const credentialsSchema = z.object({
   email:    z.string().email(),
@@ -17,25 +37,59 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         email:    { label: 'Email',    type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const parsed = credentialsSchema.safeParse(credentials)
         if (!parsed.success) return null
 
-        const { email, password } = parsed.data
+        const email = parsed.data.email.toLowerCase()
+        const { password } = parsed.data
+        const ip = getClientIp(request.headers)
+        const userAgent = request.headers.get('user-agent')
 
-        const user = await prisma.adminUser.findUnique({
-          where: { email },
+        const kAccount = `login:acct:${email}`
+        const kPair    = `login:pair:${ip}:${email}`
+        const kIp      = `login:ip:${ip}`
+
+        // 1. Is this account / IP currently locked? Same generic failure and same time as a wrong password.
+        const locked =
+          (await isRateLimited(kAccount, MAX_FAILS_PER_ACCOUNT)) ||
+          (await isRateLimited(kPair, MAX_FAILS_PER_IP_AND_ACCOUNT)) ||
+          (await isRateLimited(kIp, MAX_FAILS_PER_IP))
+        if (locked) {
+          await bcrypt.compare(password, DUMMY_PASSWORD_HASH)
+          await audit({ action: 'auth.login.locked', outcome: 'denied', actorEmail: email, ip, userAgent })
+          return null
+        }
+
+        // 2. Look the account up. ALWAYS run exactly one bcrypt comparison, even when the email is unknown,
+        //    so response time does not reveal which emails exist (V08).
+        const user = await prisma.adminUser.findFirst({
+          where: { email: { equals: email, mode: 'insensitive' } },
         })
+        const passwordMatch = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
 
-        if (!user) return null
+        if (!user || !passwordMatch) {
+          await Promise.all([
+            rateLimit(kAccount, MAX_FAILS_PER_ACCOUNT, LOGIN_WINDOW_SEC),
+            rateLimit(kPair, MAX_FAILS_PER_IP_AND_ACCOUNT, LOGIN_WINDOW_SEC),
+            rateLimit(kIp, MAX_FAILS_PER_IP, LOGIN_WINDOW_SEC),
+          ])
+          await audit({
+            action: 'auth.login.failed', outcome: 'failure', actorEmail: email, ip, userAgent,
+            metadata: { reason: user ? 'bad_password' : 'unknown_account' },
+          })
+          return null
+        }
 
-        const passwordMatch = await bcrypt.compare(password, user.passwordHash)
-        if (!passwordMatch) return null
-
-        // Update last login timestamp
+        // 3. Success: forget the failure counters for this account and record the login
+        await clearRateLimit(kAccount, kPair)
         await prisma.adminUser.update({
           where: { id: user.id },
           data:  { lastLogin: new Date() },
+        })
+        await audit({
+          action: 'auth.login.success', outcome: 'success',
+          actorId: user.id, actorEmail: user.email, actorRole: user.role, ip, userAgent,
         })
 
         return {
