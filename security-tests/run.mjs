@@ -260,6 +260,10 @@ test('V13', 'Dependencies have no known high/critical advisories', async () => {
 // ── Runner ──────────────────────────────────────────────────────────────────
 // start every run from a clean slate: earlier runs may have left lockouts / rate-limit counters
 try { await prisma.$executeRawUnsafe('DELETE FROM rate_limits') } catch { /* original app has no such table */ }
+// ...and remove the bookings that earlier runs made for the @example.com test guests, so per-guest
+// booking limits (V05) start fresh. Safe: this script refuses to run against a non-local database.
+await prisma.booking.deleteMany({ where: { guest: { email: { endsWith: '@example.com' } } } })
+await prisma.guest.deleteMany({ where: { email: { endsWith: '@example.com' } } })
 
 const only = process.argv.slice(2)
 const results = []

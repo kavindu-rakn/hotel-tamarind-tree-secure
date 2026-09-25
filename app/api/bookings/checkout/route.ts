@@ -13,6 +13,7 @@ import {
   staffNotificationEmailHtml,
 } from '@/lib/booking-utils'
 import { urlSlugToEnum } from '@/lib/utils'
+import { getGuest } from '@/lib/security/guest'
 
 // Postgres exclusion-constraint violation (23P01) — thrown when two
 // concurrent requests race for the same room unit + date range. Prisma
@@ -63,6 +64,15 @@ async function createBookingWithRetry(params: {
 
 export async function POST(req: NextRequest) {
   try {
+    // V03 (part 1): only a guest who signed in with Google may book, and the confirmation goes to the
+    // email address GOOGLE verified. The original took `email` from the request body, so anyone could
+    // make the hotel's mail server send messages to any address they liked.
+    const sessionGuest = await getGuest()
+    if (!sessionGuest) {
+      return NextResponse.json({ error: 'Please sign in with Google to make a booking request.' }, { status: 401 })
+    }
+    const email = sessionGuest.email
+
     const body = await req.json()
     const {
       roomSlug,
@@ -72,13 +82,12 @@ export async function POST(req: NextRequest) {
       numGuests,
       firstName,
       lastName,
-      email,
       phone,
       specialRequests,
     } = body
 
     // ── Validate ─────────────────────────────────────────────────
-    if (!roomSlug || !mealPlan || !checkIn || !checkOut || !firstName || !lastName || !email) {
+    if (!roomSlug || !mealPlan || !checkIn || !checkOut || !firstName || !lastName) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -106,10 +115,10 @@ export async function POST(req: NextRequest) {
 
     // ── Create or find guest ──────────────────────────────────────
     const guestName = `${firstName.trim()} ${lastName.trim()}`
-    let guest = await db.guest.findFirst({ where: { email: email.toLowerCase() } })
+    let guest = await db.guest.findFirst({ where: { email } })
     if (!guest) {
       guest = await db.guest.create({
-        data: { name: guestName, email: email.toLowerCase(), phone: phone ?? null },
+        data: { name: guestName, email, phone: phone ?? null },
       })
     }
 
@@ -154,7 +163,7 @@ export async function POST(req: NextRequest) {
     // so both must be checked to avoid silently swallowing send failures.
     getResend().emails.send({
       from:    FROM_EMAIL,
-      to:      email.toLowerCase(),
+      to:      email,
       subject: `Booking Request Received — ${confirmationCode} | Hotel Tamarind Tree`,
       html:    guestConfirmationEmailHtml(emailParams),
     }).then(({ error }) => {
@@ -168,7 +177,7 @@ export async function POST(req: NextRequest) {
       subject: `New Booking Request: ${confirmationCode} — ${guestName}`,
       html:    staffNotificationEmailHtml({
         ...emailParams,
-        guestEmail:  email.toLowerCase(),
+        guestEmail:  email,
         guestPhone:  phone ?? '',
         specialReqs: specialRequests ?? '',
       }),
