@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
+import { requireRole, STAFF_ROLES } from '@/lib/security/authz'
 import { getResend, FROM_EMAIL } from '@/lib/resend'
 import {
   generateConfirmationCode,
@@ -13,18 +13,12 @@ import {
 } from '@/lib/booking-utils'
 import { urlSlugToEnum } from '@/lib/utils'
 
-async function requireAdmin() {
-  const session = await auth()
-  if (!session) throw new Error('Unauthorized')
-  return session
-}
-
 function isOverlapConflict(err: unknown): boolean {
   return err instanceof Error && err.message.includes('bookings_no_overlap_excl')
 }
 
 export async function confirmBooking(bookingId: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.confirm')
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -34,6 +28,7 @@ export async function confirmBooking(bookingId: string) {
   if (booking.status !== 'PENDING') throw new Error('Only pending bookings can be confirmed')
 
   await db.booking.update({ where: { id: bookingId }, data: { status: 'CONFIRMED' } })
+  await ctx.log('admin.booking.confirm', `booking:${bookingId}`, { code: booking.confirmationCode })
 
   const nights = countNights(booking.checkIn, booking.checkOut)
   getResend().emails.send({
@@ -59,7 +54,7 @@ export async function confirmBooking(bookingId: string) {
 }
 
 export async function cancelBooking(bookingId: string, reason: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.cancel')
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -74,6 +69,7 @@ export async function cancelBooking(bookingId: string, reason: string) {
     where: { id: bookingId },
     data: { status: 'CANCELLED', cancellationReason: reason || null },
   })
+  await ctx.log('admin.booking.cancel', `booking:${bookingId}`, { code: booking.confirmationCode, reason: (reason ?? '').slice(0, 200) })
 
   getResend().emails.send({
     from:    FROM_EMAIL,
@@ -88,34 +84,37 @@ export async function cancelBooking(bookingId: string, reason: string) {
 }
 
 export async function checkInBooking(bookingId: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.check_in')
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CONFIRMED') throw new Error('Only confirmed bookings can be checked in')
 
   await db.booking.update({ where: { id: bookingId }, data: { status: 'CHECKED_IN' } })
+  await ctx.log('admin.booking.check_in', `booking:${bookingId}`)
   revalidatePath('/admin/bookings')
   revalidatePath('/admin')
 }
 
 export async function checkOutBooking(bookingId: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.check_out')
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CHECKED_IN') throw new Error('Only checked-in bookings can be checked out')
 
   await db.booking.update({ where: { id: bookingId }, data: { status: 'CHECKED_OUT' } })
+  await ctx.log('admin.booking.check_out', `booking:${bookingId}`)
   revalidatePath('/admin/bookings')
   revalidatePath('/admin')
 }
 
 export async function markNoShow(bookingId: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.no_show')
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CONFIRMED') throw new Error('Only confirmed bookings can be marked as no-show')
 
   await db.booking.update({ where: { id: bookingId }, data: { status: 'NO_SHOW' } })
+  await ctx.log('admin.booking.no_show', `booking:${bookingId}`)
   revalidatePath('/admin/bookings')
   revalidatePath('/admin')
 }
@@ -132,7 +131,7 @@ export async function createManualBooking(input: {
   phone: string
   specialRequests: string
 }) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'booking.create_manual')
 
   const enumSlug = urlSlugToEnum(input.roomSlug)
   if (!enumSlug) throw new Error('Invalid room type')
@@ -165,7 +164,7 @@ export async function createManualBooking(input: {
     if (!unitId) throw new Error('No rooms available for the selected dates')
 
     try {
-      await db.booking.create({
+      const created = await db.booking.create({
         data: {
           confirmationCode: generateConfirmationCode(),
           roomUnitId:       unitId,
@@ -180,6 +179,7 @@ export async function createManualBooking(input: {
           specialRequests:  input.specialRequests || null,
         },
       })
+      await ctx.log('admin.booking.create_manual', `booking:${created.id}`, { code: created.confirmationCode, room: input.roomSlug })
       revalidatePath('/admin/bookings')
       revalidatePath('/admin')
       return

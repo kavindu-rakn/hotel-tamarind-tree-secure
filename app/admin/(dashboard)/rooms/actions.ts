@@ -2,13 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
-import { auth } from '@/lib/auth'
-
-async function requireAdmin() {
-  const session = await auth()
-  if (!session) throw new Error('Unauthorized')
-  return session
-}
+import { requireRole, STAFF_ROLES, ADMIN_ONLY } from '@/lib/security/authz'
 
 export async function updateRoomType(id: string, data: {
   displayName: string
@@ -18,7 +12,7 @@ export async function updateRoomType(id: string, data: {
   sizeSqm: number | null
   isActive: boolean
 }) {
-  await requireAdmin()
+  const ctx = await requireRole(ADMIN_ONLY, 'room_type.update')
   await db.roomType.update({
     where: { id },
     data: {
@@ -30,6 +24,7 @@ export async function updateRoomType(id: string, data: {
       isActive:     data.isActive,
     },
   })
+  await ctx.log('admin.room_type.update', `roomType:${id}`, { displayName: data.displayName, isActive: data.isActive })
   revalidatePath('/admin/rooms')
 }
 
@@ -39,7 +34,8 @@ export async function updateRatePlan(id: string, data: {
   isRefundable: boolean
   cancellationPolicy: string
 }) {
-  await requireAdmin()
+  const ctx = await requireRole(ADMIN_ONLY, 'rate_plan.update')
+  const before = await db.ratePlan.findUnique({ where: { id }, select: { priceUsd: true } })
   await db.ratePlan.update({
     where: { id },
     data: {
@@ -49,17 +45,19 @@ export async function updateRatePlan(id: string, data: {
       cancellationPolicy: data.cancellationPolicy || null,
     },
   })
+  await ctx.log('admin.rate_plan.update', `ratePlan:${id}`, { oldPriceUsd: before ? Number(before.priceUsd) : null, newPriceUsd: data.priceUsd })
   revalidatePath('/admin/rooms')
 }
 
 export async function toggleUnitActive(id: string, isActive: boolean) {
-  await requireAdmin()
+  const ctx = await requireRole(ADMIN_ONLY, 'room_unit.toggle_active')
   await db.roomUnit.update({ where: { id }, data: { isActive } })
+  await ctx.log('admin.room_unit.toggle_active', `roomUnit:${id}`, { isActive })
   revalidatePath('/admin/rooms')
 }
 
 export async function addBlockedDate(input: { roomUnitId: string; startDate: string; endDate: string; reason: string }) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'blocked_date.add')
   const start = new Date(input.startDate)
   const end   = new Date(input.endDate)
   if (end <= start) throw new Error('End date must be after start date')
@@ -67,11 +65,13 @@ export async function addBlockedDate(input: { roomUnitId: string; startDate: str
   await db.blockedDate.create({
     data: { roomUnitId: input.roomUnitId, startDate: start, endDate: end, reason: input.reason || null },
   })
+  await ctx.log('admin.blocked_date.add', `roomUnit:${input.roomUnitId}`, { start: input.startDate, end: input.endDate })
   revalidatePath('/admin/rooms')
 }
 
 export async function removeBlockedDate(id: string) {
-  await requireAdmin()
+  const ctx = await requireRole(STAFF_ROLES, 'blocked_date.remove')
   await db.blockedDate.delete({ where: { id } })
+  await ctx.log('admin.blocked_date.remove', `blockedDate:${id}`)
   revalidatePath('/admin/rooms')
 }

@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, CalendarCheck, BedDouble, Mail, LogOut, Menu, X } from 'lucide-react'
 
-const NAV = [
+const NAV: { label: string; href: string; icon: typeof Mail; adminOnly?: boolean }[] = [
   { label: 'Overview',  href: '/admin',           icon: LayoutDashboard },
   { label: 'Bookings',  href: '/admin/bookings',  icon: CalendarCheck },
-  { label: 'Rooms',     href: '/admin/rooms',     icon: BedDouble },
+  { label: 'Rooms',     href: '/admin/rooms',     icon: BedDouble, adminOnly: true },
   { label: 'Inquiries', href: '/admin/inquiries', icon: Mail },
 ]
 
@@ -18,10 +18,12 @@ function isActive(pathname: string, href: string) {
 
 export default function AdminShell({
   userEmail,
+  role,
   signOutAction,
   children,
 }: {
   userEmail: string
+  role: string
   signOutAction: () => Promise<void>
   children: React.ReactNode
 }) {
@@ -40,7 +42,7 @@ export default function AdminShell({
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex w-64 shrink-0 bg-[#2C1A12] text-white flex-col">
-        <SidebarBody pathname={pathname} userEmail={userEmail} signOutAction={signOutAction} />
+        <SidebarBody pathname={pathname} userEmail={userEmail} role={role} signOutAction={signOutAction} />
       </aside>
 
       {/* Mobile drawer */}
@@ -58,6 +60,7 @@ export default function AdminShell({
             <SidebarBody
               pathname={pathname}
               userEmail={userEmail}
+              role={role}
               signOutAction={signOutAction}
               onNavigate={() => setOpen(false)}
             />
@@ -73,11 +76,13 @@ export default function AdminShell({
 function SidebarBody({
   pathname,
   userEmail,
+  role,
   signOutAction,
   onNavigate,
 }: {
   pathname: string
   userEmail: string
+  role: string
   signOutAction: () => Promise<void>
   onNavigate?: () => void
 }) {
@@ -89,7 +94,7 @@ function SidebarBody({
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {NAV.map(({ label, href, icon: Icon }) => {
+        {NAV.filter(n => !n.adminOnly || role === 'ADMIN').map(({ label, href, icon: Icon }) => {
           const active = isActive(pathname, href)
           return (
             <Link
@@ -108,7 +113,8 @@ function SidebarBody({
       </nav>
 
       <div className="px-6 py-4 border-t border-white/10">
-        <p className="text-xs font-sans text-white/50 truncate mb-2">{userEmail}</p>
+        <p className="text-xs font-sans text-white/50 truncate">{userEmail}</p>
+        <p className="text-[10px] font-sans tracking-widest uppercase text-[#C9A96E] mb-2">{role === 'ADMIN' ? 'Administrator' : 'Staff'}</p>
         <form action={signOutAction}>
           <button type="submit" className="flex items-center gap-2 text-sm font-sans text-white/70 hover:text-white transition-colors">
             <LogOut size={15} /> Sign Out

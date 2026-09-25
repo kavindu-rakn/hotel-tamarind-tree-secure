@@ -1,7 +1,13 @@
+import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
+import { auth } from '@/lib/auth'
 import RoomTypeCard from './RoomTypeCard'
 
 export default async function AdminRoomsPage() {
+  // prices and the room catalogue are administrator-only (V09); staff are sent back to the overview
+  const session = await auth()
+  if (session?.user?.role !== 'ADMIN') redirect('/admin')
+
   const roomTypes = await db.roomType.findMany({
     include: {
       ratePlans: { orderBy: { mealPlan: 'asc' } },
