@@ -143,8 +143,11 @@ test('V03', 'Email content is escaped and mail goes only to the verified guest',
   const mails = readMail(before)
   const toVictim = mails.some(m => [].concat(m.to).includes('victim@example.org'))
   const rawHtml = mails.some(m => (m.html ?? '').includes('<a href="https://evil.example/pay">'))
-  const vulnerable = toVictim || rawHtml
-  return { vulnerable, detail: `API ${res.status}; mail to arbitrary victim: ${toVictim}; raw attacker HTML in email: ${rawHtml}` }
+  // the mail must actually have been sent AND carry the text in harmless (escaped) form; otherwise the
+  // test proved nothing (e.g. the booking was refused before any mail was written)
+  const escapedSeen = mails.some(m => (m.html ?? '').includes('&lt;a href=&quot;https://evil.example/pay&quot;'))
+  const vulnerable = toVictim || rawHtml || !escapedSeen
+  return { vulnerable, detail: `API ${res.status}; mail to arbitrary victim: ${toVictim}; raw attacker HTML in email: ${rawHtml}; attacker text arrived escaped: ${escapedSeen}` }
 })
 
 test('V04', 'Server-side validation rejects nonsense bookings', async () => {

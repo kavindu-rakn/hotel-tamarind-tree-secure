@@ -1,5 +1,6 @@
 // lib/booking-utils.ts
 import { db } from '@/lib/db'
+import { escapeHtml } from '@/lib/security/html'
 
 // ─── Confirmation Code ─────────────────────────────────────────────────────
 // Format: HTT-YYYYMMDD-XXXX  (e.g. HTT-20260705-A3B2)
@@ -169,7 +170,7 @@ export function guestConfirmationEmailHtml(params: {
             <div style="display:inline-block;background:#fff8e1;border:1px solid #ffe082;border-radius:24px;padding:6px 20px;">
               <span style="color:#f57f17;font-size:13px;font-family:Arial,sans-serif;font-weight:600;">⏳ Booking Request Received</span>
             </div>
-            <h2 style="margin:20px 0 4px;font-size:22px;color:#2C1A12;">Thank you, ${guestName}!</h2>
+            <h2 style="margin:20px 0 4px;font-size:22px;color:#2C1A12;">Thank you, ${escapeHtml(guestName)}!</h2>
             <p style="margin:0;font-size:14px;color:#6D5840;font-family:Arial,sans-serif;">We have received your booking request and will get in touch within 24 hours to confirm your reservation.</p>
           </td>
         </tr>
@@ -178,7 +179,7 @@ export function guestConfirmationEmailHtml(params: {
           <td style="padding:24px 40px;">
             <div style="background:#FAF7F2;border:1px solid #E5DDD3;border-radius:8px;padding:20px;text-align:center;">
               <p style="margin:0 0 6px;font-size:11px;color:#6D5840;font-family:Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;">Booking Reference</p>
-              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${confirmCode}</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${escapeHtml(confirmCode)}</p>
             </div>
           </td>
         </tr>
@@ -199,8 +200,8 @@ export function guestConfirmationEmailHtml(params: {
                 ['Total Paid', `USD ${totalUsd}`],
               ].map(([label, value], i) => `
               <tr style="background:${i % 2 === 0 ? '#ffffff' : '#FAF7F2'};">
-                <td style="padding:12px 20px;font-size:13px;color:#6D5840;font-family:Arial,sans-serif;width:40%;">${label}</td>
-                <td style="padding:12px 20px;font-size:13px;color:#2C1A12;font-family:Arial,sans-serif;font-weight:600;">${value}</td>
+                <td style="padding:12px 20px;font-size:13px;color:#6D5840;font-family:Arial,sans-serif;width:40%;">${escapeHtml(label)}</td>
+                <td style="padding:12px 20px;font-size:13px;color:#2C1A12;font-family:Arial,sans-serif;font-weight:600;">${escapeHtml(value)}</td>
               </tr>`).join('')}
             </table>
           </td>
@@ -211,7 +212,7 @@ export function guestConfirmationEmailHtml(params: {
             <h3 style="margin:0 0 12px;font-size:16px;color:#2C1A12;">What happens next?</h3>
             <ul style="margin:0;padding:0 0 0 20px;font-size:13px;color:#5a3d2b;font-family:Arial,sans-serif;line-height:2;">
               <li>You will receive this email as your booking confirmation. Please save it.</li>
-              <li>Present your booking reference <strong>${confirmCode}</strong> upon check-in.</li>
+              <li>Present your booking reference <strong>${escapeHtml(confirmCode)}</strong> upon check-in.</li>
               <li>Check-in is from <strong>2:00 PM</strong>. Late check-in? Please let us know in advance.</li>
               <li>Have questions? Reply to this email or call us directly.</li>
             </ul>
@@ -252,21 +253,21 @@ export function staffNotificationEmailHtml(params: {
 <body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:24px;">
   <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #ddd;">
     <div style="background:#5e1e12;padding:20px 28px;">
-      <h2 style="margin:0;color:#fff;font-size:18px;">New Direct Booking — ${params.confirmCode}</h2>
+      <h2 style="margin:0;color:#fff;font-size:18px;">New Direct Booking — ${escapeHtml(params.confirmCode)}</h2>
     </div>
     <div style="padding:24px 28px;">
       <table width="100%" cellpadding="6" cellspacing="0" style="font-size:13px;color:#333;">
-        <tr><td><strong>Guest</strong></td><td>${params.guestName}</td></tr>
-        <tr><td><strong>Email</strong></td><td>${params.guestEmail}</td></tr>
-        <tr><td><strong>Phone</strong></td><td>${params.guestPhone || '—'}</td></tr>
-        <tr><td><strong>Room</strong></td><td>${params.roomName}</td></tr>
-        <tr><td><strong>Board</strong></td><td>${params.boardPlan}</td></tr>
-        <tr><td><strong>Check-in</strong></td><td>${params.checkIn}</td></tr>
-        <tr><td><strong>Check-out</strong></td><td>${params.checkOut}</td></tr>
-        <tr><td><strong>Nights</strong></td><td>${params.nights}</td></tr>
-        <tr><td><strong>Guests</strong></td><td>${params.guests}</td></tr>
-        <tr><td><strong>Total</strong></td><td>USD ${params.totalUsd}</td></tr>
-        <tr><td><strong>Special Requests</strong></td><td>${params.specialReqs || 'None'}</td></tr>
+        <tr><td><strong>Guest</strong></td><td>${escapeHtml(params.guestName)}</td></tr>
+        <tr><td><strong>Email</strong></td><td>${escapeHtml(params.guestEmail)}</td></tr>
+        <tr><td><strong>Phone</strong></td><td>${escapeHtml(params.guestPhone) || '—'}</td></tr>
+        <tr><td><strong>Room</strong></td><td>${escapeHtml(params.roomName)}</td></tr>
+        <tr><td><strong>Board</strong></td><td>${escapeHtml(params.boardPlan)}</td></tr>
+        <tr><td><strong>Check-in</strong></td><td>${escapeHtml(params.checkIn)}</td></tr>
+        <tr><td><strong>Check-out</strong></td><td>${escapeHtml(params.checkOut)}</td></tr>
+        <tr><td><strong>Nights</strong></td><td>${escapeHtml(params.nights)}</td></tr>
+        <tr><td><strong>Guests</strong></td><td>${escapeHtml(params.guests)}</td></tr>
+        <tr><td><strong>Total</strong></td><td>USD ${escapeHtml(params.totalUsd)}</td></tr>
+        <tr><td><strong>Special Requests</strong></td><td>${escapeHtml(params.specialReqs) || 'None'}</td></tr>
       </table>
     </div>
   </div>
@@ -309,7 +310,7 @@ export function bookingConfirmedEmailHtml(params: {
             <div style="display:inline-block;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:24px;padding:6px 20px;">
               <span style="color:#2e7d32;font-size:13px;font-family:Arial,sans-serif;font-weight:600;">✓ Booking Confirmed</span>
             </div>
-            <h2 style="margin:20px 0 4px;font-size:22px;color:#2C1A12;">You&apos;re all set, ${guestName}!</h2>
+            <h2 style="margin:20px 0 4px;font-size:22px;color:#2C1A12;">You&apos;re all set, ${escapeHtml(guestName)}!</h2>
             <p style="margin:0;font-size:14px;color:#6D5840;font-family:Arial,sans-serif;">Our team has confirmed your reservation. We look forward to welcoming you.</p>
           </td>
         </tr>
@@ -317,7 +318,7 @@ export function bookingConfirmedEmailHtml(params: {
           <td style="padding:24px 40px;">
             <div style="background:#FAF7F2;border:1px solid #E5DDD3;border-radius:8px;padding:20px;text-align:center;">
               <p style="margin:0 0 6px;font-size:11px;color:#6D5840;font-family:Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;">Booking Reference</p>
-              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${confirmCode}</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${escapeHtml(confirmCode)}</p>
             </div>
           </td>
         </tr>
@@ -337,8 +338,8 @@ export function bookingConfirmedEmailHtml(params: {
                 ['Total',      `USD ${totalUsd}`],
               ].map(([label, value], i) => `
               <tr style="background:${i % 2 === 0 ? '#ffffff' : '#FAF7F2'};">
-                <td style="padding:12px 20px;font-size:13px;color:#6D5840;font-family:Arial,sans-serif;width:40%;">${label}</td>
-                <td style="padding:12px 20px;font-size:13px;color:#2C1A12;font-family:Arial,sans-serif;font-weight:600;">${value}</td>
+                <td style="padding:12px 20px;font-size:13px;color:#6D5840;font-family:Arial,sans-serif;width:40%;">${escapeHtml(label)}</td>
+                <td style="padding:12px 20px;font-size:13px;color:#2C1A12;font-family:Arial,sans-serif;font-weight:600;">${escapeHtml(value)}</td>
               </tr>`).join('')}
             </table>
           </td>
@@ -374,9 +375,9 @@ export function bookingCancelledEmailHtml(params: {
     <div style="padding:28px 32px;">
       <h3 style="margin:0 0 12px;font-size:18px;color:#2C1A12;">Booking Cancelled</h3>
       <p style="margin:0 0 16px;font-size:14px;color:#5a3d2b;line-height:1.6;">
-        Hi ${guestName}, your booking <strong>${confirmCode}</strong> has been cancelled.
+        Hi ${escapeHtml(guestName)}, your booking <strong>${escapeHtml(confirmCode)}</strong> has been cancelled.
       </p>
-      ${reason ? `<p style="margin:0 0 16px;font-size:13px;color:#6D5840;"><strong>Reason:</strong> ${reason}</p>` : ''}
+      ${reason ? `<p style="margin:0 0 16px;font-size:13px;color:#6D5840;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ''}
       <p style="margin:0;font-size:13px;color:#6D5840;">If you believe this is a mistake, please contact us at info@tamarindtree.lk.</p>
     </div>
   </div>
