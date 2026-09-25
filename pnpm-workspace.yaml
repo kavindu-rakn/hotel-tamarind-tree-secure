@@ -8,3 +8,16 @@ allowBuilds:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# Security: force patched versions of transitive dependencies flagged by `pnpm audit`
+# (see docs/security-report for the advisory list). Remove an entry once the parent
+# package ships a release that already depends on a fixed version.
+overrides:
+  'brace-expansion@<2': '^1.1.18'
+  'brace-expansion@>=5 <6': '^5.0.9'
+  'browserslist@<4.28.7': '^4.28.7'
+  'deepmerge-ts@<8': '^8.0.0'
+  'js-yaml@>=4 <4.3.2': '^4.3.2'
+  'nanoid@>=3 <3.3.18': '^3.3.18'
+  'postcss@<8.5.23': '^8.5.23'
+  'baseline-browser-mapping@<2.11.0': '^2.11.0'
