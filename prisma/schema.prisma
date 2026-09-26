@@ -194,7 +194,7 @@ model Guest {
 
 model Booking {
   id               String        @id @default(cuid())
-  confirmationCode String        @unique // 8-char alphanumeric, uppercase
+  confirmationCode String        @unique // HTT-YYYYMMDD-XXXX-XXXX-XXXX (12 random characters from crypto.randomInt)
   roomUnitId       String
   guestId          String
   ratePlanId       String

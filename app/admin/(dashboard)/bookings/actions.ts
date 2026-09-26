@@ -192,6 +192,7 @@ export async function createManualBooking(rawInput: {
       return
     } catch (err) {
       if (isOverlapConflict(err)) continue
+      if ((err as { code?: string })?.code === 'P2002') continue // reference collision: draw a new one
       throw err
     }
   }

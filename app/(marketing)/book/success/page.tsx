@@ -44,7 +44,7 @@ export default async function BookSuccessPage({ searchParams }: Props) {
           {ref && (
             <div className="bg-white rounded-xl border border-[#E5DDD3] shadow-[0_2px_20px_rgba(94,30,18,0.06)] p-8 mb-8">
               <p className="text-xs font-sans font-semibold text-[#6D5840] tracking-widest uppercase mb-2">Your Booking Reference</p>
-              <p className="font-mono text-3xl font-bold text-[#5e1e12] tracking-widest">{ref}</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-[#5e1e12] tracking-wider break-all">{ref}</p>
               <p className="text-sm text-[#6D5840] font-sans mt-3">Please save this reference. You&apos;ll need it when we contact you to confirm.</p>
             </div>
           )}

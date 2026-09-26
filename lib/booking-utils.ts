@@ -3,20 +3,25 @@ import { db } from '@/lib/db'
 import { escapeHtml } from '@/lib/security/html'
 
 // ─── Confirmation Code ─────────────────────────────────────────────────────
-// Format: HTT-YYYYMMDD-XXXX  (e.g. HTT-20260705-A3B2)
+// Format: HTT-YYYYMMDD-XXXX-XXXX-XXXX  (e.g. HTT-20260705-A3B2-K7QM-R9HZ)
+//
+// V11: the original was HTT-YYYYMMDD-XXXX with the 4 letters drawn by Math.random(). Math.random is not
+// a secure generator (its output can be predicted) and 4 characters are only about a million
+// possibilities, so a script could guess other guests' references. Now: 12 characters from a secure
+// random source (crypto.randomInt, no modulo bias) = 32^12 = 2^60, about 10^18 possibilities.
+import { randomInt } from 'node:crypto'
+
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0,O,1,I to avoid confusion (32 symbols)
 
 function randomAlphanumeric(length: number): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0,O,1,I to avoid confusion
   let result = ''
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
+  for (let i = 0; i < length; i++) result += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]
   return result
 }
 
 export function generateConfirmationCode(): string {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  return `HTT-${date}-${randomAlphanumeric(4)}`
+  return `HTT-${date}-${randomAlphanumeric(4)}-${randomAlphanumeric(4)}-${randomAlphanumeric(4)}`
 }
 
 // ─── Night count ───────────────────────────────────────────────────────────
@@ -128,6 +133,7 @@ export async function assignAvailableUnit(
   // request piles onto one row and only one winner emerges per retry round,
   // starving out requests even when other units are free. Randomizing
   // spreads concurrent requests across different units so more succeed.
+  // (Math.random is fine here: this only spreads load, nothing depends on it being unpredictable)
   return available[Math.floor(Math.random() * available.length)].id
 }
 
@@ -179,7 +185,7 @@ export function guestConfirmationEmailHtml(params: {
           <td style="padding:24px 40px;">
             <div style="background:#FAF7F2;border:1px solid #E5DDD3;border-radius:8px;padding:20px;text-align:center;">
               <p style="margin:0 0 6px;font-size:11px;color:#6D5840;font-family:Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;">Booking Reference</p>
-              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${escapeHtml(confirmCode)}</p>
+              <p style="margin:0;font-size:20px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:2px;word-break:break-all;">${escapeHtml(confirmCode)}</p>
             </div>
           </td>
         </tr>
@@ -318,7 +324,7 @@ export function bookingConfirmedEmailHtml(params: {
           <td style="padding:24px 40px;">
             <div style="background:#FAF7F2;border:1px solid #E5DDD3;border-radius:8px;padding:20px;text-align:center;">
               <p style="margin:0 0 6px;font-size:11px;color:#6D5840;font-family:Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;">Booking Reference</p>
-              <p style="margin:0;font-size:26px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:3px;">${escapeHtml(confirmCode)}</p>
+              <p style="margin:0;font-size:20px;font-weight:700;color:#5e1e12;font-family:monospace;letter-spacing:2px;word-break:break-all;">${escapeHtml(confirmCode)}</p>
             </div>
           </td>
         </tr>

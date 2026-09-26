@@ -60,6 +60,12 @@ function isOverlapConflict(err: unknown): boolean {
   return err instanceof Error && err.message.includes('bookings_no_overlap_excl')
 }
 
+// Unique-constraint violation (Prisma P2002) on the confirmation code
+function isCodeCollision(err: unknown): boolean {
+  const e = err as { code?: string; meta?: { target?: unknown } }
+  return e?.code === 'P2002' && String(e?.meta?.target ?? '').includes('confirmationCode')
+}
+
 async function createBookingWithRetry(params: {
   roomTypeId: string
   checkInDate: Date
@@ -93,6 +99,7 @@ async function createBookingWithRetry(params: {
       })
     } catch (err) {
       if (isOverlapConflict(err)) continue // another request took this unit — retry with fresh availability
+      if (isCodeCollision(err)) continue   // (astronomically unlikely) same reference generated twice — draw a new one
       throw err
     }
   }

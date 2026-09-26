@@ -46,12 +46,6 @@ export function getNightCount(checkIn: Date | string, checkOut: Date | string): 
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
-// ─── Confirmation code generator ─────────────────────────────
-export function generateConfirmationCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no ambiguous chars (0/O, 1/I)
-  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
-
 // ─── Slugify ──────────────────────────────────────────────────
 export function slugify(str: string): string {
   return str
