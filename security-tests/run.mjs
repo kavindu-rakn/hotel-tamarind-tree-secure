@@ -205,11 +205,18 @@ test('V05', 'One attacker cannot hoard all rooms; real guests can still book', a
 })
 
 test('V06', 'Contact form has size and rate limits', async () => {
-  const big = await raw('/api/contact', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'spam', email: 's@s.test', subject: 'x', message: 'A'.repeat(3_000_000) }) })
+  const good = i => ({ name: 'Spam Tester', email: 'spam.tester@example.net', phone: '', subject: 'other', message: `Hello, this is test message number ${i} for the contact form.` })
+  const big = await raw('/api/contact', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...good(0), message: 'A'.repeat(3_000_000) }) })
   const ip = fakeIp(); const codes = []
-  for (let i = 0; i < 40; i++) codes.push((await raw('/api/contact', { method: 'POST', ip, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'spam', email: 's@s.test', subject: 'x', message: 'hello ' + i }) })).status)
+  for (let i = 0; i < 40; i++) codes.push((await raw('/api/contact', { method: 'POST', ip, headers: { 'content-type': 'application/json' }, body: JSON.stringify(good(i)) })).status)
   const limited = codes.includes(429)
-  return { vulnerable: ok2xx(big.status) || !limited, detail: `3 MB message -> HTTP ${big.status}; 40 rapid posts: ${limited ? 'rate limited (429)' : 'never limited'}` }
+  const stored = codes.filter(ok2xx).length
+  // a normal visitor must still be able to write to the hotel
+  const normal = await raw('/api/contact', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Real Visitor', email: 'real.visitor@example.net', phone: '+94 77 123 4567', subject: 'reservation', message: 'Do you have a family room free in March?' }) })
+  return {
+    vulnerable: ok2xx(big.status) || !limited || stored > 5 || !ok2xx(normal.status),
+    detail: `3 MB message -> HTTP ${big.status}; 40 rapid posts: ${limited ? `rate limited (429) after ${stored} accepted` : 'never limited'}; normal visitor -> HTTP ${normal.status}`,
+  }
 })
 
 test('V07', 'Login brute force is stopped', async () => {

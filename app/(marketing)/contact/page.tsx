@@ -8,7 +8,8 @@ import { SITE_EMAIL, SITE_PHONE, SITE_ADDRESS, SITE_NAME } from '@/lib/constants
 // Contact page uses client component for the form state
 export default function ContactPage() {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '' })
+  const [errorMessage, setErrorMessage] = useState('')
+  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '', website: '' })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -26,6 +27,9 @@ export default function ContactPage() {
       if (res.ok) {
         setStatus('sent')
       } else {
+        // show the server's reason (e.g. "Please write a little more") when there is one
+        const data = await res.json().catch(() => null)
+        setErrorMessage(typeof data?.error === 'string' ? data.error : '')
         setStatus('error')
       }
     } catch {
@@ -133,6 +137,11 @@ export default function ContactPage() {
                 <>
                   <h2 className="font-serif text-2xl font-semibold text-[#2C1A12] mb-6">Send Us a Message</h2>
                   <form onSubmit={handleSubmit} className="flex-1 flex flex-col space-y-5" noValidate>
+                    {/* Honeypot: hidden from people, visible to bots that fill every field. Do not remove. */}
+                    <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
+                      <label htmlFor="contact-website">Leave this field empty</label>
+                      <input id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" value={form.website} onChange={handleChange} />
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div>
                         <label htmlFor="contact-name" className="block text-sm font-sans font-medium text-[#2C1A12] mb-1.5">Full Name *</label>
@@ -207,7 +216,7 @@ export default function ContactPage() {
                       />
                     </div>
                     {status === 'error' && (
-                      <p className="text-sm text-red-600 font-sans">Something went wrong. Please try again or email us directly.</p>
+                      <p className="text-sm text-red-600 font-sans" role="alert">{errorMessage || 'Something went wrong. Please try again or email us directly.'}</p>
                     )}
                     <button
                       id="contact-submit-btn"
