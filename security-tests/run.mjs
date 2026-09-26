@@ -140,7 +140,10 @@ test('V03', 'Email content is escaped and mail goes only to the verified guest',
   const evil = '<a href="https://evil.example/pay">CLICK HERE to confirm payment</a><img src=x onerror=alert(1)>'
   let b
   for (let i = 0; i < 3; i++) { b = await book({ specialRequests: evil }, cookie); if (b.status !== 409) break }
-  await sleep(800)
+  // The app sends mail in the background after it has answered, so wait (up to 10 s) for both mails of
+  // request (b) to reach the fake mail server instead of guessing a fixed delay.
+  for (let i = 0; i < 50 && readMail(before).length < 2; i++) await sleep(200)
+  await sleep(300)
   const mails = readMail(before)
   const toVictim = mails.some(m => [].concat(m.to).includes('victim@example.org'))
   const rawHtml = mails.some(m => (m.html ?? '').includes('<a href="https://evil.example/pay">'))
