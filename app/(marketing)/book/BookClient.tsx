@@ -35,9 +35,11 @@ type Step = 1 | 2 | 3
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-function today()    { return new Date().toISOString().slice(0, 10) }
+// The hotel's calendar day (Sri Lanka), written YYYY-MM-DD. The server judges "not in the past" by the
+// same clock, so a guest booking in the evening UTC is not told that today is already yesterday.
+function today()    { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) }
 function tomorrow() {
-  const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10)
+  const d = new Date(`${today()}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10)
 }
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
@@ -250,7 +252,7 @@ function BookPageInner({ guestName, guestEmail }: BookClientProps) {
         }),
       })
       const data = await res.json()
-      if (res.status === 401) { window.location.href = '/sign-in?callbackUrl=/book'; return }
+      if (res.status === 401) { router.push('/sign-in?callbackUrl=/book'); return }
       if (!res.ok) { setSubmitError(data.error ?? 'Something went wrong'); return }
       router.push(`/book/success?ref=${data.confirmationCode}`)
     } catch {

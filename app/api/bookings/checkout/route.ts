@@ -14,6 +14,11 @@ import {
 } from '@/lib/booking-utils'
 import { urlSlugToEnum } from '@/lib/utils'
 import { getGuest } from '@/lib/security/guest'
+import { crossSiteBlock, readJsonBody } from '@/lib/security/request'
+import { bookingRequestSchema } from '@/lib/validation/booking'
+
+// A real booking request is well under 1 KB. 8 KB leaves generous room and still stops abuse.
+const MAX_BODY_BYTES = 8 * 1024
 
 // Postgres exclusion-constraint violation (23P01) — thrown when two
 // concurrent requests race for the same room unit + date range. Prisma
@@ -64,52 +69,53 @@ async function createBookingWithRetry(params: {
 
 export async function POST(req: NextRequest) {
   try {
-    // V03 (part 1): only a guest who signed in with Google may book, and the confirmation goes to the
-    // email address GOOGLE verified. The original took `email` from the request body, so anyone could
-    // make the hotel's mail server send messages to any address they liked.
+    // 1. Only our own pages may post here (blocks another website acting as a signed-in guest)
+    const blocked = crossSiteBlock(req)
+    if (blocked) return blocked
+
+    // 2. V03 (part 1): only a guest who signed in with Google may book, and the confirmation goes to the
+    //    email address GOOGLE verified. The original took `email` from the request body, so anyone could
+    //    make the hotel's mail server send messages to any address they liked.
     const sessionGuest = await getGuest()
     if (!sessionGuest) {
       return NextResponse.json({ error: 'Please sign in with Google to make a booking request.' }, { status: 401 })
     }
     const email = sessionGuest.email
 
-    const body = await req.json()
-    const {
-      roomSlug,
-      mealPlan,
-      checkIn,
-      checkOut,
-      numGuests,
-      firstName,
-      lastName,
-      phone,
-      specialRequests,
-    } = body
-
-    // ── Validate ─────────────────────────────────────────────────
-    if (!roomSlug || !mealPlan || !checkIn || !checkOut || !firstName || !lastName) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    // 3. V04: read a bounded body and validate every field. Unknown fields are rejected outright.
+    const read = await readJsonBody(req, MAX_BODY_BYTES)
+    if (!read.ok) return read.response
+    const parsed = bookingRequestSchema.safeParse(read.data)
+    if (!parsed.success) {
+      const first = parsed.error.issues[0]
+      return NextResponse.json(
+        { error: first?.message ?? 'Please check your details.', field: first?.path?.[0] ?? null },
+        { status: 400 },
+      )
     }
+    const { roomSlug, mealPlan, checkIn, checkOut, numGuests, firstName, lastName, phone, specialRequests } = parsed.data
 
     const enumSlug = urlSlugToEnum(roomSlug)
     if (!enumSlug) {
-      return NextResponse.json({ error: 'Invalid room slug' }, { status: 400 })
+      return NextResponse.json({ error: 'Unknown room.' }, { status: 400 })
     }
 
-    const checkInDate  = new Date(checkIn)
-    const checkOutDate = new Date(checkOut)
+    const checkInDate  = new Date(`${checkIn}T00:00:00Z`)
+    const checkOutDate = new Date(`${checkOut}T00:00:00Z`)
     const nights       = countNights(checkInDate, checkOutDate)
-
-    if (nights < 1) {
-      return NextResponse.json({ error: 'Invalid date range' }, { status: 400 })
-    }
 
     // ── Fetch room type + rate plan ───────────────────────────────
     const roomType = await db.roomType.findUnique({ where: { slug: enumSlug } })
     if (!roomType) return NextResponse.json({ error: 'Room type not found' }, { status: 404 })
+    if (numGuests > roomType.maxOccupancy) {
+      return NextResponse.json(
+        { error: `${roomType.displayName} sleeps up to ${roomType.maxOccupancy} guests.`, field: 'numGuests' },
+        { status: 400 },
+      )
+    }
 
     const ratePlan = await db.ratePlan.findFirst({
-      where: { roomTypeId: roomType.id, mealPlan: mealPlan as 'BB' | 'HB', isVisible: true },
+      where: { roomTypeId: roomType.id, mealPlan, isVisible: true },
     })
     if (!ratePlan) return NextResponse.json({ error: 'Rate plan not found' }, { status: 404 })
 
@@ -118,7 +124,7 @@ export async function POST(req: NextRequest) {
     let guest = await db.guest.findFirst({ where: { email } })
     if (!guest) {
       guest = await db.guest.create({
-        data: { name: guestName, email, phone: phone ?? null },
+        data: { name: guestName, email, phone: phone || null },
       })
     }
 
@@ -133,7 +139,7 @@ export async function POST(req: NextRequest) {
       checkOutDate,
       guestId:         guest.id,
       ratePlanId:      ratePlan.id,
-      numGuests:       numGuests ?? 1,
+      numGuests,
       totalUsd,
       specialRequests: specialRequests || null,
     })
@@ -154,7 +160,7 @@ export async function POST(req: NextRequest) {
       checkIn:      checkInStr,
       checkOut:     checkOutStr,
       nights,
-      guests:       numGuests ?? 1,
+      guests:       numGuests,
       totalUsd:     totalUsd.toFixed(2),
     }
 

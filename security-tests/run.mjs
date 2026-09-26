@@ -133,12 +133,13 @@ test('V02', 'Cron endpoint fails closed when CRON_SECRET is unset', async () => 
 test('V03', 'Email content is escaped and mail goes only to the verified guest', async () => {
   const cookie = await guestCookie('v03.guest@example.com')
   const before = mailCount()
-  const evil = '<a href="https://evil.example/pay">CLICK HERE to confirm payment</a>'
-  let res
-  for (let i = 0; i < 3; i++) {
-    res = await book({ email: 'victim@example.org', firstName: 'Mallory', lastName: 'Evil', specialRequests: evil + '<img src=x onerror=alert(1)>' }, cookie)
-    if (res.status !== 409) break
-  }
+  // (a) attacker names another recipient in the request body
+  let a
+  for (let i = 0; i < 3; i++) { a = await book({ email: 'victim@example.org' }, cookie); if (a.status !== 409) break }
+  // (b) attacker puts HTML in the free-text field
+  const evil = '<a href="https://evil.example/pay">CLICK HERE to confirm payment</a><img src=x onerror=alert(1)>'
+  let b
+  for (let i = 0; i < 3; i++) { b = await book({ specialRequests: evil }, cookie); if (b.status !== 409) break }
   await sleep(800)
   const mails = readMail(before)
   const toVictim = mails.some(m => [].concat(m.to).includes('victim@example.org'))
@@ -147,7 +148,7 @@ test('V03', 'Email content is escaped and mail goes only to the verified guest',
   // test proved nothing (e.g. the booking was refused before any mail was written)
   const escapedSeen = mails.some(m => (m.html ?? '').includes('&lt;a href=&quot;https://evil.example/pay&quot;'))
   const vulnerable = toVictim || rawHtml || !escapedSeen
-  return { vulnerable, detail: `API ${res.status}; mail to arbitrary victim: ${toVictim}; raw attacker HTML in email: ${rawHtml}; attacker text arrived escaped: ${escapedSeen}` }
+  return { vulnerable, detail: `(a) body email -> HTTP ${a.status}, mail to arbitrary victim: ${toVictim}; (b) HTML in request -> HTTP ${b.status}, raw attacker HTML in email: ${rawHtml}, escaped copy arrived: ${escapedSeen}` }
 })
 
 test('V04', 'Server-side validation rejects nonsense bookings', async () => {

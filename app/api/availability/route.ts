@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findAvailableRoomTypes } from '@/lib/booking-utils'
 import { enumToUrlSlug, getRoomImagePath } from '@/lib/utils'
+import { isoDay, checkStay, MAX_MAX_OCCUPANCY } from '@/lib/validation/booking'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -13,19 +14,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'checkIn and checkOut are required' }, { status: 400 })
   }
 
-  const checkIn  = new Date(checkInStr)
-  const checkOut = new Date(checkOutStr)
-  const guests   = parseInt(guestsStr, 10)
+  // V04: same date rules as the booking endpoint (real dates, not in the past, at most 30 nights).
+  // The original accepted any range, so ?checkOut=9999-12-31 made the server compute 2.9 million "nights".
+  if (!isoDay.safeParse(checkInStr).success || !isoDay.safeParse(checkOutStr).success) {
+    return NextResponse.json({ error: 'Dates must be written like 2026-12-31.' }, { status: 400 })
+  }
+  const stayProblem = checkStay(checkInStr, checkOutStr)
+  if (stayProblem) return NextResponse.json({ error: stayProblem }, { status: 400 })
 
-  if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) {
-    return NextResponse.json({ error: 'Invalid dates' }, { status: 400 })
+  const guests = /^\d{1,2}$/.test(guestsStr) ? parseInt(guestsStr, 10) : NaN
+  if (!(guests >= 1 && guests <= MAX_MAX_OCCUPANCY)) {
+    return NextResponse.json({ error: `Guests must be between 1 and ${MAX_MAX_OCCUPANCY}` }, { status: 400 })
   }
-  if (checkOut <= checkIn) {
-    return NextResponse.json({ error: 'checkOut must be after checkIn' }, { status: 400 })
-  }
-  if (guests < 1 || guests > 8) {
-    return NextResponse.json({ error: 'Guests must be between 1 and 8' }, { status: 400 })
-  }
+
+  const checkIn  = new Date(`${checkInStr}T00:00:00Z`)
+  const checkOut = new Date(`${checkOutStr}T00:00:00Z`)
 
   const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
 
