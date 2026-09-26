@@ -167,7 +167,20 @@ test('V04', 'Server-side validation rejects nonsense bookings', async () => {
   }
   const accepted = []
   for (const [name, o] of Object.entries(cases)) if (ok2xx((await book(o, cookie)).status)) accepted.push(name)
-  return { vulnerable: accepted.length > 0, detail: accepted.length ? 'accepted: ' + accepted.join('; ') : 'all 6 bad requests rejected' }
+
+  // Admin side: even a real ADMIN must not be able to store a negative, absurd or half-cent price
+  await ensureStaff('price.admin@tamarindtree.lk', 'AdminPass-123', 'ADMIN')
+  const [ci2, co2] = futureWindow()
+  const priceOf = async () => (await (await raw(`/api/availability?checkIn=${ci2}&checkOut=${co2}&guests=2`)).json()).results.find(r => r.slug === 'deluxe-double').rates.BB
+  const plan = await priceOf(); const original = plan.pricePerNight
+  const admin = await login('price.admin@tamarindtree.lk', 'AdminPass-123')
+  if (admin.ok) {
+    for (const bad of [-50, 99999999, 12.345]) {
+      await raw('/admin/rooms', { method: 'POST', headers: { 'next-action': actionId('updateRatePlan'), 'content-type': 'text/plain;charset=UTF-8', cookie: admin.cookie }, body: JSON.stringify([plan.id, { priceUsd: bad, isVisible: true, isRefundable: true, cancellationPolicy: '' }]) })
+      if ((await priceOf()).pricePerNight !== original) { accepted.push(`admin price ${bad}`); await prisma.ratePlan.update({ where: { id: plan.id }, data: { priceUsd: original } }) }
+    }
+  }
+  return { vulnerable: accepted.length > 0, detail: accepted.length ? 'accepted: ' + accepted.join('; ') : `all 6 bad public requests and 3 bad admin prices rejected${admin.ok ? '' : ' (admin login failed: admin part skipped)'}` }
 })
 
 test('V05', 'One attacker cannot hoard all rooms; real guests can still book', async () => {

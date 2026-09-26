@@ -12,6 +12,7 @@ import {
   bookingCancelledEmailHtml,
 } from '@/lib/booking-utils'
 import { urlSlugToEnum } from '@/lib/utils'
+import { parseInput, idSchema, cancelReasonSchema, manualBookingSchema } from '@/lib/validation/admin'
 
 function isOverlapConflict(err: unknown): boolean {
   return err instanceof Error && err.message.includes('bookings_no_overlap_excl')
@@ -19,6 +20,7 @@ function isOverlapConflict(err: unknown): boolean {
 
 export async function confirmBooking(bookingId: string) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.confirm')
+  bookingId = parseInput(idSchema, bookingId)
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -55,6 +57,8 @@ export async function confirmBooking(bookingId: string) {
 
 export async function cancelBooking(bookingId: string, reason: string) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.cancel')
+  bookingId = parseInput(idSchema, bookingId)
+  reason = parseInput(cancelReasonSchema, reason ?? '')
 
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
@@ -85,6 +89,7 @@ export async function cancelBooking(bookingId: string, reason: string) {
 
 export async function checkInBooking(bookingId: string) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.check_in')
+  bookingId = parseInput(idSchema, bookingId)
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CONFIRMED') throw new Error('Only confirmed bookings can be checked in')
@@ -97,6 +102,7 @@ export async function checkInBooking(bookingId: string) {
 
 export async function checkOutBooking(bookingId: string) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.check_out')
+  bookingId = parseInput(idSchema, bookingId)
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CHECKED_IN') throw new Error('Only checked-in bookings can be checked out')
@@ -109,6 +115,7 @@ export async function checkOutBooking(bookingId: string) {
 
 export async function markNoShow(bookingId: string) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.no_show')
+  bookingId = parseInput(idSchema, bookingId)
   const booking = await db.booking.findUnique({ where: { id: bookingId } })
   if (!booking) throw new Error('Booking not found')
   if (booking.status !== 'CONFIRMED') throw new Error('Only confirmed bookings can be marked as no-show')
@@ -119,7 +126,7 @@ export async function markNoShow(bookingId: string) {
   revalidatePath('/admin')
 }
 
-export async function createManualBooking(input: {
+export async function createManualBooking(rawInput: {
   roomSlug: string
   mealPlan: 'BB' | 'HB'
   checkIn: string
@@ -132,14 +139,14 @@ export async function createManualBooking(input: {
   specialRequests: string
 }) {
   const ctx = await requireRole(STAFF_ROLES, 'booking.create_manual')
+  const input = parseInput(manualBookingSchema, rawInput)
 
   const enumSlug = urlSlugToEnum(input.roomSlug)
   if (!enumSlug) throw new Error('Invalid room type')
 
-  const checkInDate  = new Date(input.checkIn)
-  const checkOutDate = new Date(input.checkOut)
+  const checkInDate  = new Date(`${input.checkIn}T00:00:00Z`)
+  const checkOutDate = new Date(`${input.checkOut}T00:00:00Z`)
   const nights = countNights(checkInDate, checkOutDate)
-  if (nights < 1) throw new Error('Invalid date range')
 
   const roomType = await db.roomType.findUnique({ where: { slug: enumSlug } })
   if (!roomType) throw new Error('Room type not found')

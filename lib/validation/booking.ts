@@ -35,7 +35,7 @@ export function checkStay(checkIn: string, checkOut: string, now = new Date()): 
 }
 
 // letters (any language), combining marks, space, apostrophe, hyphen, full stop - no digits, no < > & etc.
-const personName = z
+export const personName = z
   .string()
   .trim()
   .min(1, 'Please enter your name.')
@@ -43,7 +43,10 @@ const personName = z
   .regex(/^[\p{L}\p{M}][\p{L}\p{M} '.\-]*$/u, 'Names can only contain letters, spaces, apostrophes, hyphens and full stops.')
 
 // no control characters except line breaks and tabs
-const NO_CONTROL = /^[^\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]*$/
+export const NO_CONTROL = /^[^\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]*$/
+
+export const phoneField = z.string().trim().regex(/^\+?[0-9 ()\-]{7,20}$/, 'Phone numbers can contain digits, spaces, brackets, hyphens and a leading +.').or(z.literal('')).optional()
+export const specialRequestsField = z.string().max(500, 'Special requests can be at most 500 characters.').regex(NO_CONTROL, 'Special requests contain characters we cannot accept.').optional()
 
 export const bookingRequestSchema = z
   .strictObject({ // strictObject: any field we did not ask for is an error (stops "mass assignment")
@@ -54,8 +57,8 @@ export const bookingRequestSchema = z
     numGuests: z.number('Number of guests must be a number.').int('Number of guests must be a whole number.').min(1, 'At least one guest is required.').max(MAX_MAX_OCCUPANCY, 'Too many guests for one room.'),
     firstName: personName,
     lastName: personName,
-    phone: z.string().trim().regex(/^\+?[0-9 ()\-]{7,20}$/, 'Phone numbers can contain digits, spaces, brackets, hyphens and a leading +.').or(z.literal('')).optional(),
-    specialRequests: z.string().max(500, 'Special requests can be at most 500 characters.').regex(NO_CONTROL, 'Special requests contain characters we cannot accept.').optional(),
+    phone: phoneField,
+    specialRequests: specialRequestsField,
   })
   .superRefine((v, ctx) => {
     const problem = checkStay(v.checkIn, v.checkOut)

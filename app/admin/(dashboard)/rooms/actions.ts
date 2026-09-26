@@ -1,8 +1,10 @@
 'use server'
 
+import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { requireRole, STAFF_ROLES, ADMIN_ONLY } from '@/lib/security/authz'
+import { parseInput, idSchema, roomTypeUpdateSchema, ratePlanUpdateSchema, blockedDateSchema } from '@/lib/validation/admin'
 
 export async function updateRoomType(id: string, data: {
   displayName: string
@@ -13,6 +15,8 @@ export async function updateRoomType(id: string, data: {
   isActive: boolean
 }) {
   const ctx = await requireRole(ADMIN_ONLY, 'room_type.update')
+  id = parseInput(idSchema, id)
+  data = parseInput(roomTypeUpdateSchema, data)
   await db.roomType.update({
     where: { id },
     data: {
@@ -35,6 +39,8 @@ export async function updateRatePlan(id: string, data: {
   cancellationPolicy: string
 }) {
   const ctx = await requireRole(ADMIN_ONLY, 'rate_plan.update')
+  id = parseInput(idSchema, id)
+  data = parseInput(ratePlanUpdateSchema, data)
   const before = await db.ratePlan.findUnique({ where: { id }, select: { priceUsd: true } })
   await db.ratePlan.update({
     where: { id },
@@ -51,6 +57,8 @@ export async function updateRatePlan(id: string, data: {
 
 export async function toggleUnitActive(id: string, isActive: boolean) {
   const ctx = await requireRole(ADMIN_ONLY, 'room_unit.toggle_active')
+  id = parseInput(idSchema, id)
+  isActive = parseInput(z.boolean(), isActive)
   await db.roomUnit.update({ where: { id }, data: { isActive } })
   await ctx.log('admin.room_unit.toggle_active', `roomUnit:${id}`, { isActive })
   revalidatePath('/admin/rooms')
@@ -58,9 +66,9 @@ export async function toggleUnitActive(id: string, isActive: boolean) {
 
 export async function addBlockedDate(input: { roomUnitId: string; startDate: string; endDate: string; reason: string }) {
   const ctx = await requireRole(STAFF_ROLES, 'blocked_date.add')
-  const start = new Date(input.startDate)
-  const end   = new Date(input.endDate)
-  if (end <= start) throw new Error('End date must be after start date')
+  input = parseInput(blockedDateSchema, input)
+  const start = new Date(`${input.startDate}T00:00:00Z`)
+  const end   = new Date(`${input.endDate}T00:00:00Z`)
 
   await db.blockedDate.create({
     data: { roomUnitId: input.roomUnitId, startDate: start, endDate: end, reason: input.reason || null },
@@ -71,6 +79,7 @@ export async function addBlockedDate(input: { roomUnitId: string; startDate: str
 
 export async function removeBlockedDate(id: string) {
   const ctx = await requireRole(STAFF_ROLES, 'blocked_date.remove')
+  id = parseInput(idSchema, id)
   await db.blockedDate.delete({ where: { id } })
   await ctx.log('admin.blocked_date.remove', `blockedDate:${id}`)
   revalidatePath('/admin/rooms')
