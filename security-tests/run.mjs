@@ -190,7 +190,18 @@ test('V05', 'One attacker cannot hoard all rooms; real guests can still book', a
   for (let i = 0; i < 6; i++) statuses.push((await book({ roomSlug: 'family', checkIn, checkOut, numGuests: 2 }, attacker)).status)
   const won = statuses.filter(ok2xx).length
   const real = await book({ roomSlug: 'family', checkIn, checkOut, numGuests: 2 }, await guestCookie('v05.real@example.com'))
-  return { vulnerable: won >= 4 || !ok2xx(real.status), detail: `attacker statuses ${statuses.join(',')} (${won} rooms held); real guest got HTTP ${real.status}` }
+
+  // the same attack, but all requests sent at the same instant (tries to slip past a "count, then insert" check)
+  const [ci2, co2] = futureWindow(3)
+  const burstEmail = 'v05.burst@example.com'
+  const burst = await guestCookie(burstEmail)
+  await Promise.all(Array.from({ length: 6 }, () => book({ roomSlug: 'family', checkIn: ci2, checkOut: co2, numGuests: 2, ...(LEGACY ? { email: burstEmail } : {}) }, burst)))
+  const held = await prisma.booking.count({ where: { status: 'PENDING', guest: { email: burstEmail } } })
+
+  return {
+    vulnerable: won >= 4 || !ok2xx(real.status) || held > 3,
+    detail: `one after another: ${statuses.join(',')} (${won} rooms held); real guest got HTTP ${real.status}; 6 at once: ${held} rooms held`,
+  }
 })
 
 test('V06', 'Contact form has size and rate limits', async () => {

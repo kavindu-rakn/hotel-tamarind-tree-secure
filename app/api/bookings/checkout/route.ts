@@ -15,10 +15,42 @@ import {
 import { urlSlugToEnum } from '@/lib/utils'
 import { getGuest } from '@/lib/security/guest'
 import { crossSiteBlock, readJsonBody } from '@/lib/security/request'
-import { bookingRequestSchema } from '@/lib/validation/booking'
+import { bookingRequestSchema, todayAtHotel } from '@/lib/validation/booking'
+import { rateLimit } from '@/lib/security/rate-limit'
+import { getClientIp } from '@/lib/security/client-ip'
+import { audit } from '@/lib/security/audit'
 
 // A real booking request is well under 1 KB. 8 KB leaves generous room and still stops abuse.
 const MAX_BODY_BYTES = 8 * 1024
+
+// ─── Anti-hoarding (V05) ─────────────────────────────────────────────────────
+// A PENDING request blocks the room for everybody else until staff answer or it expires (48 h). The
+// original let one anonymous script request every room in the hotel in seconds, for free.
+//   - one guest may have at most 3 requests waiting for confirmation at a time (a family booking 2-3 rooms is fine)
+//   - at most 10 attempts per guest and 20 per network address per hour
+// Trade-off: someone with many Google accounts can still hold rooms, only more slowly and at a visible
+// cost (each request is tied to a verified email, is audited, and expires). The complete fix is a
+// deposit at booking time, which needs the payment feature that this project does not have yet.
+const MAX_PENDING_PER_GUEST = 3
+const MAX_ATTEMPTS_PER_GUEST_PER_HOUR = 10
+const MAX_ATTEMPTS_PER_IP_PER_HOUR = 20
+
+function tooMany(message: string, retryAfterSec?: number) {
+  return NextResponse.json({ error: message }, {
+    status: 429,
+    headers: retryAfterSec ? { 'Retry-After': String(retryAfterSec) } : undefined,
+  })
+}
+
+async function countPendingRequests(email: string) {
+  return db.booking.count({
+    where: {
+      status: 'PENDING',
+      checkOut: { gte: new Date(`${todayAtHotel()}T00:00:00Z`) }, // old, forgotten requests do not count
+      guest: { email },
+    },
+  })
+}
 
 // Postgres exclusion-constraint violation (23P01) — thrown when two
 // concurrent requests race for the same room unit + date range. Prisma
@@ -81,6 +113,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Please sign in with Google to make a booking request.' }, { status: 401 })
     }
     const email = sessionGuest.email
+    const ip = getClientIp(req.headers)
+    const userAgent = req.headers.get('user-agent')
+
+    // 2b. V05: rate limits per guest and per network address (the IP limit is skipped only when the
+    //     address cannot be determined; the per-guest limit still applies then)
+    const perGuest = await rateLimit(`book:guest:${sessionGuest.id}`, MAX_ATTEMPTS_PER_GUEST_PER_HOUR, 3600)
+    const perIp = ip === 'unknown' ? null : await rateLimit(`book:ip:${ip}`, MAX_ATTEMPTS_PER_IP_PER_HOUR, 3600)
+    if (!perGuest.allowed || (perIp && !perIp.allowed)) {
+      await audit({ action: 'booking.request.rate_limited', outcome: 'denied', actorId: sessionGuest.id, actorEmail: email, actorRole: 'GUEST', ip, userAgent })
+      return tooMany('Too many booking attempts. Please try again later.', Math.max(perGuest.retryAfterSec, perIp?.retryAfterSec ?? 0))
+    }
 
     // 3. V04: read a bounded body and validate every field. Unknown fields are rejected outright.
     const read = await readJsonBody(req, MAX_BODY_BYTES)
@@ -128,6 +171,12 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // ── V05: how many requests is this guest already holding? ───────
+    if ((await countPendingRequests(email)) >= MAX_PENDING_PER_GUEST) {
+      await audit({ action: 'booking.request.pending_cap', outcome: 'denied', actorId: sessionGuest.id, actorEmail: email, actorRole: 'GUEST', ip, userAgent })
+      return tooMany(`You already have ${MAX_PENDING_PER_GUEST} booking requests waiting for confirmation. Please wait for the hotel to reply, or contact us if you need more rooms.`)
+    }
+
     // ── Calculate total ───────────────────────────────────────────
     const pricePerNight = Number(ratePlan.priceUsd)
     const totalUsd      = pricePerNight * nights
@@ -147,6 +196,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This room is no longer available for the selected dates. Please try again.' }, { status: 409 })
     }
     const confirmationCode = booking.confirmationCode
+
+    // V05, second look: two requests sent at the same instant can both pass the check above. Count again
+    // now that this booking exists and undo it if the guest went over the limit.
+    if ((await countPendingRequests(email)) > MAX_PENDING_PER_GUEST) {
+      await db.booking.delete({ where: { id: booking.id } })
+      await audit({ action: 'booking.request.pending_cap', outcome: 'denied', actorId: sessionGuest.id, actorEmail: email, actorRole: 'GUEST', ip, userAgent, metadata: { stage: 'after_insert' } })
+      return tooMany(`You already have ${MAX_PENDING_PER_GUEST} booking requests waiting for confirmation. Please wait for the hotel to reply, or contact us if you need more rooms.`)
+    }
+    await audit({ action: 'booking.request.created', outcome: 'success', actorId: sessionGuest.id, actorEmail: email, actorRole: 'GUEST', target: `booking:${confirmationCode}`, ip, userAgent })
 
     // ── Send emails ───────────────────────────────────────────────
     const checkInStr  = checkInDate.toISOString().slice(0, 10)
